@@ -1,4 +1,6 @@
 [package]
+description = "ternary-phase - SuperInstance ecosystem crate"
+repository = "https://github.com/SuperInstance/ternary-phase"
 name = "ternary-phase"
 version = "0.1.0"
 edition = "2021"
