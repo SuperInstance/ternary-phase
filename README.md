@@ -1,71 +1,142 @@
 # ternary-phase
 
-**Phase relationships between ternary oscillators. In tune or out of phase?**
+Phase relationships between ternary oscillators. Phase wrapping, phase difference, Kuramoto coherence order parameter $R$, phase-lock detection, and anti-phase identification — for populations of {-1, 0, +1} agents mapped onto a 3-sector phase cycle.
 
-When two oscillators are "in sync," their phases align — both at the same point in their cycle at the same time. But "in sync" isn't binary. Two oscillators can be perfectly aligned, perfectly opposed (180° out of phase), or anywhere in between. Phase relationships are the *geometry* of synchronization.
+## Why It Matters
 
-This crate maps continuous phase angles to ternary sectors: each 120° slice of the cycle maps to one ternary value. Phase coherence measures how aligned a group of oscillators is. Phase locking detects when oscillators maintain a fixed phase relationship. The result is a *ternary phase space* where synchronization is a geometric property, not just a binary state.
+Synchronization is one of the most universal phenomena in nature — from firefly flashing to power grid stability to neural oscillations. Ternary phase dynamics extend this to systems with three natural states, where phase space divides into three sectors:
 
-## What's Inside
+- **Sector 0 (0 to 2π/3):** maps to +1 (constructive/active)
+- **Sector 1 (2π/3 to 4π/3):** maps to 0 (neutral/transitional)
+- **Sector 2 (4π/3 to 2π):** maps to -1 (inhibitory/quiescent)
 
-- **`Phase`** — wrapped phase value in [0, 2π). `to_trit()` maps to ternary sector
-- **`Phase::coherence(phases)`** — Kuramoto-style order parameter for ternary phases. 1 = aligned, 0 = random
-- **`Phase::locking_error(phase_a, phase_b)`** — how far are two oscillators from being phase-locked?
-- **`Phase::is_locked(a, b, tolerance)`** — are they locked within tolerance?
-- **`Phase::difference(a, b)`** — the shortest angular distance between two phases
-- **`Phase::advance(phase, omega, dt)`** — step a phase forward by angular velocity × time
+This three-state cycle naturally models circadian rhythms, ternary logic clocks, multi-phase power systems, and oscillating agent populations where agents cycle through active/neutral/inhibitory phases.
 
-## Quick Example
+## How It Works
+
+### Phase Representation
+
+Phase $\phi \in [0, 2\pi)$, wrapped modulo $2\pi$:
+
+$$\text{wrap}(\phi) = \phi \bmod 2\pi, \quad \text{adjusted to } [0, 2\pi)$$
+
+### Phase Difference
+
+Signed difference wrapped to $[-\pi, \pi)$:
+
+$$\Delta\phi = ((\phi_A - \phi_B) + \pi) \bmod 2\pi - \pi$$
+
+This ensures the difference always takes the shortest angular path.
+
+### Phase Lock
+
+Two oscillators are phase-locked if:
+
+$$|\Delta\phi| < \epsilon$$
+
+for threshold $\epsilon$ (typically 0.1-0.5 radians).
+
+**Anti-phase** ($\pi$ apart):
+
+$$||\Delta\phi| - \pi| < \epsilon$$
+
+### Kuramoto Order Parameter
+
+The phase coherence of a population of $N$ oscillators:
+
+$$R = \left|\frac{1}{N}\sum_{j=1}^{N} e^{i\theta_j}\right| = \sqrt{\left(\frac{1}{N}\sum_j \cos\theta_j\right)^2 + \left(\frac{1}{N}\sum_j \sin\theta_j\right)^2}$$
+
+- $R = 1$: perfect synchrony (all phases aligned)
+- $R = 0$: incoherent (phases uniformly distributed)
+- $R \in (0, 1)$: partial synchrony
+
+**Complexity:** O($N$) — single pass over phases.
+
+### In-Phase Ratio
+
+Fraction of a population locked to a reference phase:
+
+$$f_{\text{lock}} = \frac{|\{j : |\Delta(\theta_j, \phi_{\text{ref}})| < \epsilon\}|}{N}$$
+
+### Phase Velocity
+
+Rate of phase change:
+
+$$\omega = \frac{\Delta\phi}{\Delta t}$$
+
+At $\Delta t = 0$, returns 0 (avoiding division by zero).
+
+### Ternary Sector Mapping
+
+$$\text{trit}(\phi) = \begin{cases} +1 & \text{if } 0 \leq \phi < 2\pi/3 \\ 0 & \text{if } 2\pi/3 \leq \phi < 4\pi/3 \\ -1 & \text{if } 4\pi/3 \leq \phi < 2\pi \end{cases}$$
+
+## Quick Start
 
 ```rust
 use ternary_phase::*;
+use std::f64::consts::TAU;
 
-// Two oscillators: one at 0°, one at 120°
-let a = Phase::new(0.0);
-let b = Phase::new(2.0 * PI / 3.0);
+// Phase wrapping
+assert!((phase_wrap(TAU + 0.5) - 0.5).abs() < 1e-10);
+assert!((phase_wrap(-0.5) - (TAU - 0.5)).abs() < 1e-10);
 
-// Their ternary values
-assert_eq!(a.to_trit(), Trit::Pos);   // 0° → +1
-assert_eq!(b.to_trit(), Trit::Zero);  // 120° → 0
+// Phase difference (shortest path)
+let d = phase_difference(0.1, TAU - 0.1);
+assert!((d - 0.2).abs() < 1e-6); // wraps around
 
-// Phase difference
-let diff = Phase::difference(a, b);
-// 120° — one sector apart
+// Phase lock detection
+assert!(phase_lock(1.0, 1.01, 0.1));   // locked
+assert!(!phase_lock(0.0, std::f64::consts::PI, 0.1)); // not locked
 
-// Are they phase-locked?
-assert!(Phase::is_locked(a, b, PI / 3.0)); // within 60° tolerance
+// Kuramoto coherence
+let synced = vec![0.0, 0.01, 0.02, 0.03];
+assert!(phase_coherence(&synced) > 0.99); // R ≈ 1
 
-// Coherence of a group
-let phases = vec![Phase::new(0.0), Phase::new(0.1), Phase::new(0.2)];
-let coh = Phase::coherence(&phases);
-assert!(coh > 0.9); // nearly aligned → high coherence
+let uniform: Vec<f64> = (0..12).map(|i| i as f64 * TAU / 12.0).collect();
+assert!(phase_coherence(&uniform) < 0.3); // R ≈ 0
+
+// Anti-phase detection
+assert!(anti_phase(0.0, std::f64::consts::PI, 0.1));
+
+// In-phase ratio
+let phases = vec![1.0, 1.01, 1.02, 3.0];
+assert!((in_phase_ratio(&phases, 1.0, 0.1) - 0.75).abs() < 0.01);
+
+// Ternary sector mapping
+let p = Phase::new(0.0);
+assert_eq!(p.to_trit(), Trit::Pos);
 ```
 
-## The Deeper Truth
+## API
 
-**120° sectors create exactly three phase relationships.** Two ternary oscillators can be in-phase (same sector), adjacent (one sector apart), or opposed (two sectors apart). That's it. This is simpler than continuous phase, where the relationship is a continuous angle. In ternary, phase is a *categorical* variable: same, adjacent, or opposed. This makes phase analysis combinatorial rather than geometric — and combinatorial problems are decidable in ways that continuous problems aren't.
+| Function | Description |
+|---|---|
+| `Phase::new(f64)` | Wrapped phase value |
+| `.to_trit()` | Map to dominant ternary sector |
+| `phase_wrap(p) → f64` | Wrap to [0, 2π) |
+| `phase_difference(a, b) → f64` | Signed Δ in [-π, π) |
+| `phase_lock(a, b, threshold) → bool` | |Δ| < threshold |
+| `anti_phase(a, b, threshold) → bool` | Δ ≈ ±π |
+| `phase_velocity(Δφ, Δt) → f64` | Angular velocity |
+| `in_phase_ratio(phases, ref, threshold) → f64` | Fraction locked to reference |
+| `phase_coherence(phases) → f64` | Kuramoto $R \in [0,1]$ |
 
-The ternary phase circle is Z₃ — the cyclic group of order 3. Phase advancement by one sector is exactly the Z₃ rotation. This means ternary phase dynamics are governed by the same algebra as rock-paper-scissors, ternary addition, and all the other Z₃ structures in the ternary ecosystem.
+## Architecture Notes
 
-**Use cases:**
-- **Audio synthesis** — phase alignment between oscillators for rich timbres
-- **Multi-agent coordination** — are agents in phase or fighting each other?
-- **Neural oscillators** — brain rhythm synchronization in ternary models
-- **Power systems** — phase relationships in three-phase power (literally Z₃!)
-- **Dance/music** — phase relationships between performers
+Phase dynamics implement the **γ + η = C** identity through the angular distribution of oscillator populations. When $R \approx 1$ (synchronized), the entire population occupies one ternary sector — either all constructive (γ-dominated), all inhibitory (η-dominated), or all neutral. The conserved quantity $C = N$ is distributed among the three phase sectors.
 
-## See Also
+As $R$ decreases, the population spreads across all three sectors, and the system passes through a phase transition described by the Kuramoto model:
 
-- **ternary-kuramoto** — the dynamical system that drives phase synchronization (or fails to)
-- **ternary-harmonic** — harmonic relationships between phase-locked oscillators
-- **ternary-sync** — Z₃ synchronization primitives
-- **ternary-polyrhythm** — phase relationships across different period lengths
+$$\frac{d\theta_i}{dt} = \omega_i + \frac{K}{N}\sum_j \sin(\theta_j - \theta_i)$$
 
-## Install
+The critical coupling $K_c$ for ternary phase transitions is modified relative to continuous Kuramoto because the three-sector discretization introduces additional locking thresholds at $\pm 2\pi/3$.
 
-```bash
-cargo add ternary-phase
-```
+## References
+
+- Kuramoto, Y. (1984). *Chemical Oscillations, Waves, and Turbulence.* Springer.
+- Strogatz, S. H. (2000). *From Kuramoto to Crawford.* Physica D, 143(1-4).
+- Pikovsky, A. et al. (2003). *Synchronization.* Cambridge University Press.
+- Acebrón, J. A. et al. (2005). *The Kuramoto Model: A Simple Paradigm for Synchronization Phenomena.* Rev. Mod. Phys., 77(1).
 
 ## License
 
